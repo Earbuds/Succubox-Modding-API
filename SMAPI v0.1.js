@@ -1,4 +1,4 @@
-addDrop(resourceDatatype, resourceName, amount, rarity) {
+function addDrop(resourceDatatype, resourceName, amount, rarity) {
 	droptable.push(new LootDrop(
         new ResourceUnlock(resourceDatatype, amount),
         amount + " " + resourceName + ".", rarity));
