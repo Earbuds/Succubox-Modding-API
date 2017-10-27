@@ -4,26 +4,29 @@
 var modid = "DEFAULT_MODID";
 
 // Temporary modded object arrays
-var mod_shop_items = [];
 var mod_res = [];
+var mod_shop_items = [];
 var mod_events = [];
+var mod_recipes = [];
 
 // Persistent modded object arrays
-var mod_shop_itemsp = [];
 var mod_resp = [];
+var mod_shop_itemsp = [];
 var mod_eventsp = [];
+var mod_recipesp = [];
 
 // Count of mods currently loaded
 var mods_loaded = 0;
 
-// Modded saveInterval
+// Modded saveInterval, can be cancelable
 var saveInterval;
 
 /** 
 Easy-to-use object which consists of an item and an amount of that item
 */
 function ItemPair(item, amount) {
-	this.item = item;
+	if(mod_res[modid + "_" + item] != null) this.item = data[modid + "_" + item];
+	else this.item = data[item];
 	this.amount = amount;
 }
 
@@ -84,8 +87,8 @@ function ParseResult(itemResult) {
 Called before a mod is initialized
 */
 function initMod() {
-	mod_shop_items = [];
 	mod_res = [];
+	mod_shop_items = [];
 	mod_events = [];
 }
 
@@ -101,7 +104,7 @@ function postInitMod(id) {
 		saveInterval = setInterval(modSave, 1000*60);
 	}
 	
-	addGameEvent("loadedEvent", new ItemCondition(new ItemPair(data.gold, 0), "gequal"), "MOD LOADED", "Mod: \""+ modid + "\" loaded successfully!", "okbox", null);
+	addGameEvent("loadedEvent", new ItemCondition(new ItemPair("gold", 0), "gequal"), "MOD LOADED", "Mod: \""+ modid + "\" loaded successfully!", "okbox", null);
 }
 
 // SAVING
@@ -112,15 +115,30 @@ Saves all modded objects
 function modSave() {
 	var storage = window.localStorage;
 	
+	for(var i = 0; i < mod_resp.length; i++) {
+		if(mod_resp[i].constructor === PairObjectArray) {
+			storage.setItem(mod_resp[i].id + "_save_exists", JSON.stringify(true));
+			
+			for(obj in mod_res[i].objArr) {
+				if(data[obj].value == NUMBER.POSITIVE_INFINITY || isNaN(data[obj].value)) storage.setItem("data-" + obj, "inf");
+				else storage.setItem("data-" + obj, JSON.stringify(data[obj]));
+			}
+		}
+	}
+	
 	for(var i = 0; i < mod_shop_itemsp.length; i++) {
 		if(mod_shop_itemsp[i].constructor === PairObjectArray) {
-			var pObjArr = mod_shop_itemsp[i];
-			
-			storage.setItem(pObjArr.id + "_save_exists", JSON.stringify(true));
-			
-			for(obj in pObjArr.objArr) {
+			for(obj in mod_shop_itemsp[i].objArr) {
 				storage.setItem("shopbought-" + obj, JSON.stringify(shop_items[obj].bought));
 				storage.setItem("shopavailable-" + obj, JSON.stringify(shop_items[obj].available));
+			}
+		}
+	}
+	
+	for(var i = 0; i < mod_eventsp.length; i++) {
+		if(mod_eventsp[i].constructor === PairObjectArray) {
+			for(obj in mod_eventsp[i].objArr) {
+				storage.setItem("event-" + obj, JSON.stringify(game_events[obj].unlocked));
 			}
 		}
 	}
@@ -133,16 +151,30 @@ function modLoad(id) {
 	var storage = window.localStorage;
 	
 	if(storage.getItem(id + "_save_exists")) {
+		for(obj in mod_res) {
+			if(storage.getItem("data-" + obj)) {
+				if(storage.getItem("data-" + obj) == "inf") data[obj].value == Number.POSITIVE_INFINITY;
+				else data[obj].value = JSON.parse(storage.getItem("data-" + obj));
+			}
+		}
+	
 		for(obj in mod_shop_items) {
 			if(storage.getItem("shopbought-" + obj)) {
 				shop_items[obj].bought = JSON.parse(storage.getItem("shopbought-" + obj));
 				shop_items[obj].available = JSON.parse(storage.getItem("shopavailable-" + obj));
 			}
 		}
+		
+		for(obj in mod_events) {
+			if(storage.getItem("event-" + obj)) {
+				game_events[obj].unlocked = JSON.parse(storage.getItem("event-" + obj));
+			}
+		}
 	}
 	
-	if(mod_shop_items != null) mod_shop_itemsp.push(new PairObjectArray(id, mod_shop_items));
-	else mod_shop_itemsp.push("");
+	mod_resp.push(new PairObjectArray(id, mod_res));
+	mod_shop_itemsp.push(new PairObjectArray(id, mod_shop_items));
+	mod_eventsp.push(new PairObjectArray(id, mod_events));
 	
 	mods_loaded += 1;
 }
@@ -155,6 +187,22 @@ TAKES: String, array of: (mod_shop_items, mod_res, mod_events)
 function PairObjectArray(modid, objectArray) {
 	this.id = modid;
 	this.objArr = objectArray;
+}
+
+// RESOURCES
+
+/**
+Adds a custom resource to the list of all resources.
+
+TAKES: String, String, String, int
+*/
+function addResource(name, singularName, internalName, initialValue) {
+	var resName = modid + "_" + internalName;
+	
+	mod_res[resName] = new Resource(name, initialValue);
+	mod_res[resName].singular = singularName;
+	
+	data[resName] = mod_res[resName];
 }
 
 // DROPS
@@ -243,7 +291,6 @@ TAKES: String, ItemCondition or array of ItemConditions, String, String, String,
 TYPES - okbox: Creates an OK box that appears in the middle of your screen
 			conscience: Creates an event that appears in the conscience, eventTitle not needed
 */
-
 function addGameEvent(eventName, eventAppearCondition, eventTitle, eventText, eventType, eventResult) {
 	game_events[eventName] = new GameEvent(
 		function(){ //condition
